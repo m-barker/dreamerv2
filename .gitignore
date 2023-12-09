@@ -143,3 +143,4 @@ training_images/*
 
 # Data
 *.csv
+*.json
