@@ -4,6 +4,7 @@ import os
 import torch
 import numpy as np
 import gym  # type: ignore
+import pandas as pd  # type: ignore
 import sys
 
 sys.path.append("..")
@@ -16,6 +17,7 @@ from dreamerv2.utils.wrapper import (
     asterixPOMDP,
     freewayPOMDP,
 )
+from dreamerv2.utils.caption_generation import PomdpBreakoutCaptioner
 from dreamerv2.training.config import MinAtarConfig
 from dreamerv2.training.trainer import Trainer
 from dreamerv2.training.evaluator import Evaluator
@@ -67,16 +69,20 @@ def main(args):
         batch_size=batch_size,
         model_dir=model_dir,
     )
-
+    captioner = PomdpBreakoutCaptioner(env)
     config_dict = config.__dict__
     trainer = Trainer(config, device)
     evaluator = Evaluator(config, device)
-
+    training_step = 0
+    image_dir = "/home/mattbarker/dev/dreamerv2/training_images/"
+    image_paths = []
+    image_captions = []
     with wandb.init(project="mastering MinAtar with world models", config=config_dict):
         """training loop"""
         print("...training...")
         train_metrics = {}
         trainer.collect_seed_episodes(env)
+        # Obs is array of (paddle, ball, bricks)
         obs, score = env.reset(), 0
         done = False
         prev_rssmstate = trainer.RSSM._init_rssm_state(1)
@@ -112,6 +118,11 @@ def main(args):
             score += rew
 
             if done:
+                image_captions.append(captioner.generate_caption(next_obs))
+                env.env.env.env.display_state(
+                    0, fp=image_dir + str(training_step) + ".png"
+                )
+                image_paths.append(image_dir + str(training_step) + ".png")
                 train_episodes += 1
                 trainer.buffer.add(obs, action.squeeze(0).cpu().numpy(), rew, done)
                 train_metrics["train_rewards"] = score
@@ -138,8 +149,25 @@ def main(args):
                     obs, action.squeeze(0).detach().cpu().numpy(), rew, done
                 )
                 obs = next_obs
+                image_captions.append(captioner.generate_caption(obs))
+                env.env.env.env.display_state(
+                    0, fp=image_dir + str(training_step) + ".png"
+                )
+                image_paths.append(image_dir + str(training_step) + ".png")
                 prev_rssmstate = posterior_rssm_state
                 prev_action = action
+            if training_step == 0 or training_step % 1000 == 0:
+                df = pd.DataFrame(
+                    {"image_path": image_paths, "caption": image_captions}
+                )
+                df.to_csv(
+                    os.path.join(
+                        "/home/mattbarker/dev/dreamerv2/",
+                        "breakout_captions.csv",
+                    ),
+                    index=False,
+                )
+            training_step += 1
 
     """evaluating probably best model"""
     evaluator.eval_saved_agent(env, best_save_path)

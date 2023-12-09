@@ -137,3 +137,9 @@ dmypy.json
 
 # Models
 *.pth
+
+# Images
+training_images/*
+
+# Data
+*.csv
